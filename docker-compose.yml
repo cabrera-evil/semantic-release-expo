@@ -1,0 +1,10 @@
+services:
+  backend:
+    image: cabreraevil/semantic-release-expo
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: semantic-release-expo
+    restart: no
+    env_file:
+      - .env

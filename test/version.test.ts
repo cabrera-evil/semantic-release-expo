@@ -1,0 +1,224 @@
+jest.mock('lodash', () => ({ template: jest.fn() }));
+jest.mock('../src/config', () => ({ getVersionTemplates: jest.fn() }));
+jest.mock('../src/platforms', () => ({
+	getAndroidPlatform: jest.fn(),
+	getIosPlatform: jest.fn(),
+}));
+
+import { template as _template } from 'lodash';
+import { coerce } from 'semver';
+import { getVersionTemplates } from '../src/config';
+import { getAndroidPlatform, getIosPlatform } from '../src/platforms';
+import {
+	calculateAndroidVersion,
+	calculateIosVersion,
+	calculateVersion,
+	getDefaultVariables,
+	getVersionCode,
+} from '../src/version';
+import { createContext, createManifestMeta } from './factory';
+
+describe('version', () => {
+	describe('#getVersionCode', () => {
+		it('calculates new version with expo and next release', () => {
+			expect(getVersionCode(coerce('1.5.9')!, coerce('29.0.1')!)).toBe(
+				290010509
+			);
+			expect(getVersionCode(coerce('0.2.1')!, coerce('25.4.0')!)).toBe(
+				250000201
+			);
+			expect(getVersionCode(coerce('4.10.20')!, coerce('30.0.0')!)).toBe(
+				300041020
+			);
+			expect(getVersionCode(coerce('10.20.30')!, coerce('27.10.30')!)).toBe(
+				270102030
+			);
+		});
+	});
+
+	describe('#getDefaultVariables', () => {
+		it('returns expo version, last and next release, recommended version and (numeric) version code', () => {
+			const meta = createManifestMeta({
+				name: 'test-app',
+				sdkVersion: '29.0.1',
+			});
+			const context = createContext({
+				last: {
+					gitHead: '192aqs',
+					gitTag: 'v2.5.12',
+					version: '2.5.12',
+				},
+				next: {
+					gitHead: '271abq',
+					gitTag: 'v3.0.0',
+					notes: 'New major release',
+					version: '3.0.0',
+				},
+			});
+
+			expect(getDefaultVariables(meta, context)).toMatchObject({
+				code: 290030000,
+				expo: coerce('29.0.1'),
+				last: coerce('2.5.12'),
+				next: coerce('3.0.0'),
+				recommended: '3.0.0',
+			});
+		});
+	});
+
+	const sharedConfig = {};
+	const sharedMeta = createManifestMeta({
+		name: 'test-app',
+		sdkVersion: '29.1.0',
+	});
+	const sharedContext = createContext({
+		last: {
+			gitHead: '12j1ad',
+			gitTag: 'v4.5.1',
+			version: '4.5.1',
+		},
+		next: {
+			gitHead: 'kl1dsq',
+			gitTag: 'v4.6.0',
+			notes: 'New minor release',
+			version: '4.6.0',
+		},
+	});
+
+	const sharedVariables = {
+		code: 290040600,
+		expo: coerce('29.1.0'),
+		last: coerce('4.5.1'),
+		next: coerce('4.6.0'),
+		recommended: '4.6.0',
+	};
+
+	describe('#calculateVersion', () => {
+		it('returns new version using template', () => {
+			const templateCompiler = jest.fn();
+
+			jest
+				.mocked(getVersionTemplates)
+				.mockReturnValue({ version: '${next.raw}' } as any);
+			jest.mocked(_template as jest.Mock).mockReturnValue(templateCompiler);
+			templateCompiler.mockReturnValue('4.6.0');
+
+			expect(calculateVersion(sharedMeta, sharedConfig, sharedContext)).toMatch(
+				'4.6.0'
+			);
+			expect(jest.mocked(_template as jest.Mock)).toHaveBeenCalledWith(
+				'${next.raw}'
+			);
+			expect(templateCompiler).toHaveBeenCalledWith({
+				...sharedVariables,
+				increment: 1,
+			});
+		});
+
+		it('returns proper incremental versions', () => {
+			const templateCompiler = jest.fn();
+			const meta = createManifestMeta({
+				name: 'test-app',
+				sdkVersion: '28.0.0',
+				version: '8',
+			});
+
+			jest
+				.mocked(getVersionTemplates)
+				.mockReturnValue({ version: '${increment}' } as any);
+			jest.mocked(_template as jest.Mock).mockReturnValue(templateCompiler);
+			templateCompiler.mockReturnValue('9');
+
+			expect(calculateVersion(meta, sharedConfig, sharedContext)).toMatch('9');
+			expect(jest.mocked(_template as jest.Mock)).toHaveBeenCalledWith(
+				'${increment}'
+			);
+			expect(templateCompiler).toHaveBeenCalledWith({
+				...sharedVariables,
+				code: 280040600,
+				expo: coerce('28.0.0'),
+				increment: 9,
+			});
+		});
+	});
+
+	describe('#calculateAndroidVersion', () => {
+		it('returns new version using template', () => {
+			const templateCompiler = jest.fn();
+
+			jest
+				.mocked(getVersionTemplates)
+				.mockReturnValue({ android: '${code}' } as any);
+			jest
+				.mocked(getAndroidPlatform)
+				.mockReturnValue({ versionCode: '290040501' } as any);
+			jest.mocked(_template as jest.Mock).mockReturnValue(templateCompiler);
+			templateCompiler.mockReturnValue('290040600');
+
+			expect(
+				calculateAndroidVersion(sharedMeta, sharedConfig, sharedContext)
+			).toMatch('290040600');
+			expect(jest.mocked(_template as jest.Mock)).toHaveBeenCalledWith(
+				'${code}'
+			);
+			expect(templateCompiler).toHaveBeenCalledWith({
+				...sharedVariables,
+				increment: 290040502,
+				recommended: sharedVariables.code,
+			});
+		});
+	});
+
+	describe('#calculateIosVersion', () => {
+		it('returns new version using template', () => {
+			const templateCompiler = jest.fn();
+
+			jest
+				.mocked(getVersionTemplates)
+				.mockReturnValue({ ios: '${recommended}' } as any);
+			jest.mocked(getIosPlatform).mockReturnValue({ buildNumber: '4.5.1' });
+			jest.mocked(_template as jest.Mock).mockReturnValue(templateCompiler);
+			templateCompiler.mockReturnValue('4.6.0');
+
+			expect(
+				calculateIosVersion(sharedMeta, sharedConfig, sharedContext)
+			).toMatch('4.6.0');
+			expect(jest.mocked(_template as jest.Mock)).toHaveBeenCalledWith(
+				'${recommended}'
+			);
+			expect(templateCompiler).toHaveBeenCalledWith({
+				...sharedVariables,
+				increment: 1,
+			});
+		});
+
+		it('returns proper incremental versions', () => {
+			const templateCompiler = jest.fn();
+			const meta = createManifestMeta({
+				name: 'test-app',
+				sdkVersion: '28.0.0',
+				version: '8',
+			});
+
+			jest
+				.mocked(getVersionTemplates)
+				.mockReturnValue({ ios: '${increment}' } as any);
+			jest.mocked(getIosPlatform).mockReturnValue({ buildNumber: '8' });
+			jest.mocked(_template as jest.Mock).mockReturnValue(templateCompiler);
+			templateCompiler.mockReturnValue('9');
+
+			expect(calculateIosVersion(meta, sharedConfig, sharedContext)).toMatch(
+				'9'
+			);
+			expect(jest.mocked(_template as jest.Mock)).toHaveBeenCalledWith(
+				'${increment}'
+			);
+			expect(templateCompiler).toHaveBeenCalledWith({
+				...sharedVariables,
+				code: 280040600,
+				expo: coerce('28.0.0'),
+				increment: 9,
+			});
+		});
+	});
+});
