@@ -1,6 +1,6 @@
 {
 	"name": "@cabrera-evil/semantic-release-expo",
-	"version": "1.0.0-beta.6",
+	"version": "1.0.0",
 	"description": "An Expo implementation for semantic release, so you don't have to bother",
 	"keywords": [
 		"expo",
